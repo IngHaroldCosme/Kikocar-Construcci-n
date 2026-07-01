@@ -1,0 +1,110 @@
+-- ============================================================
+-- KIKOCAR CONSTRUCCIÓN — Esquema v2 (Flota específica)
+-- Ejecutar en el SQL Editor de Supabase
+-- ============================================================
+
+DROP TABLE IF EXISTS reportes_diarios CASCADE;
+DROP TABLE IF EXISTS ordenes_servicio CASCADE;
+DROP TABLE IF EXISTS maquinaria CASCADE;
+DROP TABLE IF EXISTS operadores CASCADE;
+DROP TABLE IF EXISTS frentes_obra CASCADE;
+
+-- ======================= TABLAS =======================
+
+CREATE TABLE frentes_obra (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nombre      VARCHAR(150)  NOT NULL,
+    ubicacion   VARCHAR(255)  NOT NULL,
+    cliente     VARCHAR(150)  NOT NULL,
+    created_at  TIMESTAMPTZ   DEFAULT now()
+);
+
+CREATE TABLE operadores (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    dni         VARCHAR(15)   NOT NULL UNIQUE,
+    nombre      VARCHAR(100)  NOT NULL,
+    apellido    VARCHAR(100)  NOT NULL,
+    licencia    VARCHAR(50)   NOT NULL,
+    estado      VARCHAR(20)   NOT NULL DEFAULT 'DISPONIBLE'
+                    CHECK (estado IN ('DISPONIBLE','ASIGNADO','INACTIVO')),
+    created_at  TIMESTAMPTZ   DEFAULT now()
+);
+
+CREATE TABLE maquinaria (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    codigo_interno      VARCHAR(30)   NOT NULL UNIQUE,
+    marca               VARCHAR(100)  NOT NULL,
+    modelo              VARCHAR(100)  NOT NULL,
+    tipo                VARCHAR(50)   NOT NULL,
+    capacidad_ton       INT           NOT NULL,
+    consumo_teorico_gh  NUMERIC(6,2)  NOT NULL,
+    horometro_actual    NUMERIC(10,2) NOT NULL DEFAULT 0,
+    ultimo_mant_horas   NUMERIC(10,2) NOT NULL DEFAULT 0,
+    intervalo_mant_horas NUMERIC(10,2) NOT NULL DEFAULT 250,
+    estado_operativo    VARCHAR(20)   NOT NULL DEFAULT 'OPERATIVA'
+                    CHECK (estado_operativo IN ('OPERATIVA','EN MANTENIMIENTO','FUERA DE SERVICIO')),
+    created_at          TIMESTAMPTZ   DEFAULT now()
+);
+
+CREATE TABLE ordenes_servicio (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    numero_orden    VARCHAR(50)   NOT NULL UNIQUE,
+    cliente         VARCHAR(150)  NOT NULL,
+    descripcion     TEXT,
+    monto           NUMERIC(12,2) NOT NULL DEFAULT 0,
+    fecha_inicio    DATE          NOT NULL,
+    fecha_fin       DATE,
+    frente_id       UUID          REFERENCES frentes_obra(id),
+    maquina_id      UUID          NOT NULL REFERENCES maquinaria(id),
+    operador_id     UUID          NOT NULL REFERENCES operadores(id),
+    estado          VARCHAR(20)   NOT NULL DEFAULT 'ACTIVA'
+                    CHECK (estado IN ('ACTIVA','EN_PROGRESO','COMPLETADA','CANCELADA')),
+    created_at      TIMESTAMPTZ   DEFAULT now()
+);
+
+CREATE TABLE reportes_diarios (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    orden_id            UUID          NOT NULL REFERENCES ordenes_servicio(id),
+    fecha               DATE          NOT NULL DEFAULT CURRENT_DATE,
+    horometro_inicio    NUMERIC(10,2) NOT NULL,
+    horometro_fin       NUMERIC(10,2) NOT NULL,
+    horas_trabajadas    NUMERIC(10,2) NOT NULL,
+    galones_combustible NUMERIC(10,2) NOT NULL,
+    costo_combustible   NUMERIC(12,2) NOT NULL DEFAULT 0,
+    descripcion         TEXT,
+    alerta_robo         BOOLEAN       NOT NULL DEFAULT FALSE,
+    probabilidad_fallo  NUMERIC(5,2)  DEFAULT 0,
+    dias_restantes_mant INT           DEFAULT 0,
+    created_at          TIMESTAMPTZ   DEFAULT now()
+);
+
+-- ======================= ÍNDICES =======================
+CREATE INDEX idx_ordenes_operador ON ordenes_servicio(operador_id);
+CREATE INDEX idx_ordenes_maquina  ON ordenes_servicio(maquina_id);
+CREATE INDEX idx_reportes_orden   ON reportes_diarios(orden_id);
+CREATE INDEX idx_maquinaria_estado ON maquinaria(estado_operativo);
+
+-- ======================= SEED DATA =======================
+
+-- FRENTES DE OBRA
+INSERT INTO frentes_obra (nombre, ubicacion, cliente) VALUES
+('Edificio Torres del Sol','Av. Principal 1234, Lima','Constructora Los Andes'),
+('Puente Grau','Km 14 Panamericana Sur, Ica','Gobierno Regional Ica'),
+('Mina Cerro Verde','Carretera Arequipa-Mollendo, Arequipa','Sociedad Minera Cerro Verde'),
+('Ampliación Aeropuerto','Av. Elmer Faucett, Callao','Ministerio de Transportes');
+
+-- OPERADORES (5 hombres)
+INSERT INTO operadores (dni, nombre, apellido, licencia, estado) VALUES
+('12345678','Carlos','Gutiérrez','A-IIIB','DISPONIBLE'),
+('23456789','José','Ramírez','A-IIIB','DISPONIBLE'),
+('34567890','Luis','Torres','A-IIIC','DISPONIBLE'),
+('45678901','Pedro','Sánchez','A-IIIB','DISPONIBLE'),
+('56789012','Miguel','Ángel Rojas','A-IIIC','DISPONIBLE');
+
+-- MAQUINARIA — Flota específica: 2 Terex 90T, 1 Zoomlion 110T, 1 Zoomlion 130T, 1 Zoomlion 300T
+INSERT INTO maquinaria (codigo_interno, marca, modelo, tipo, capacidad_ton, consumo_teorico_gh, horometro_actual, ultimo_mant_horas, intervalo_mant_horas, estado_operativo) VALUES
+('TRX-090A','Terex','AC 90','Grúa Todoterreno',90,  11.50, 1850.00, 1700.00, 250, 'OPERATIVA'),
+('TRX-090B','Terex','RT 90','Grúa Todoterreno',90,  10.80, 2130.00, 2000.00, 250, 'OPERATIVA'),
+('ZLM-110A','Zoomlion','ZTC1100V','Grúa Móvil',110, 13.20, 250.00,  0.00,   250, 'OPERATIVA'),
+('ZLM-130A','Zoomlion','ZTC1300V','Grúa Móvil',130, 14.50, 320.00,  250.00, 250, 'OPERATIVA'),
+('ZLM-300A','Zoomlion','ZCC300','Grúa Oruga',300,  18.90, 155.00,  0.00,   250, 'OPERATIVA');
