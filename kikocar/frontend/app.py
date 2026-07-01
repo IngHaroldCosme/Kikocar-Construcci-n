@@ -429,11 +429,11 @@ with st.sidebar:
             st.session_state.nav_admin = st.radio(
                 "NAVEGACION",
                 ["Panel General", "Registrar Orden", "Ordenes Activas",
-                 "Control de Combustible", "Mantenimiento Predictivo",
-                 "Alertas de Operador", "Exportar Valorizacion"],
+                 "Mantenimiento Predictivo", "Alertas de Operador",
+                 "Exportar Valorizacion"],
                 index=["Panel General", "Registrar Orden", "Ordenes Activas",
-                       "Control de Combustible", "Mantenimiento Predictivo",
-                       "Alertas de Operador", "Exportar Valorizacion"].index(st.session_state.nav_admin),
+                       "Mantenimiento Predictivo", "Alertas de Operador",
+                       "Exportar Valorizacion"].index(st.session_state.nav_admin),
                 label_visibility="collapsed",
             )
         else:
@@ -809,46 +809,6 @@ if st.session_state.rol == "ADMINISTRADOR":
         else:
             st.info("No hay ordenes activas registradas")
 
-    elif nav == "Control de Combustible":
-        st.subheader("Alertas de Consumo de Combustible")
-        todos = api_get("/api/v1/reportes/valorizacion")
-        if todos:
-            rows = []
-            for r in todos:
-                gal_cons = max(r["galones_inicial"] - r["galones_final"], 0)
-                horas = r["horas_trabajadas"]
-                tasa = gal_cons / max(horas, 0.1)
-                ct = r.get("consumo_teorico_gh", 5.0)
-                esperado = horas * ct * 1.15
-                alerta = gal_cons > esperado and horas > 0
-                rows.append({
-                    "Fecha": r["fecha"][:10],
-                    "Orden": r["orden"],
-                    "Horas": f"{horas:.1f}",
-                    "Gal.Ini": f"{r['galones_inicial']:.1f}",
-                    "Gal.Fin": f"{r['galones_final']:.1f}",
-                    "Consumido": f"{gal_cons:.1f} gal",
-                    "Tasa": f"{tasa:.2f} gal/h",
-                    "Alerta": "SI" if alerta else "NO",
-                })
-            df = pd.DataFrame(rows)
-
-            def highlight(row):
-                if row["Alerta"] == "SI":
-                    return ["background-color: #ffcccc"] * len(row)
-                return [""] * len(row)
-
-            styled = df.style.apply(highlight, axis=1)
-            st.dataframe(styled, use_container_width=True, hide_index=True)
-
-            total_alertas = sum(1 for r in rows if r["Alerta"] == "SI")
-            if total_alertas > 0:
-                st.warning(f"Se detectaron {total_alertas} reporte(s) con consumo inusual (alta carga de combustible en pocas horas).")
-            else:
-                st.info("No se detectaron anomalias de consumo.")
-        else:
-            st.info("No hay reportes registrados")
-
     elif nav == "Mantenimiento Predictivo":
         st.subheader("Estado de Mantenimiento de Flota")
         predictivo = api_get("/api/v1/reportes/predictivo")
@@ -860,21 +820,21 @@ if st.session_state.rol == "ADMINISTRADOR":
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown(
-                    f"<div style='background:#ff4444; color:white; padding:15px; border-radius:8px; text-align:center'>"
+                    f"<div style='background:#DC3545; color:white; padding:15px; border-radius:8px; text-align:center'>"
                     f"<div style='font-size:28px; font-weight:bold'>{criticos}</div>"
                     f"<div style='font-size:12px'>Requieren Atencion Urgente</div></div>",
                     unsafe_allow_html=True,
                 )
             with col2:
                 st.markdown(
-                    f"<div style='background:#ffaa00; color:white; padding:15px; border-radius:8px; text-align:center'>"
+                    f"<div style='background:#FFC107; color:white; padding:15px; border-radius:8px; text-align:center'>"
                     f"<div style='font-size:28px; font-weight:bold'>{medios}</div>"
                     f"<div style='font-size:12px'>Programar Mantenimiento</div></div>",
                     unsafe_allow_html=True,
                 )
             with col3:
                 st.markdown(
-                    f"<div style='background:#44aa44; color:white; padding:15px; border-radius:8px; text-align:center'>"
+                    f"<div style='background:#198754; color:white; padding:15px; border-radius:8px; text-align:center'>"
                     f"<div style='font-size:28px; font-weight:bold'>{bajos}</div>"
                     f"<div style='font-size:12px'>En Condiciones Normales</div></div>",
                     unsafe_allow_html=True,
@@ -887,29 +847,29 @@ if st.session_state.rol == "ADMINISTRADOR":
 
                 if crit == "CRITICO":
                     bg = "#fff0f0"
-                    border = "#ff4444"
+                    border = "#DC3545"
                     badge = "CRITICO"
-                    badge_bg = "#ff4444"
+                    badge_bg = "#DC3545"
                 elif crit == "MEDIO":
                     bg = "#fff8e6"
-                    border = "#ffaa00"
+                    border = "#FFC107"
                     badge = "ATENCION"
-                    badge_bg = "#ffaa00"
+                    badge_bg = "#FFC107"
                 else:
                     bg = "#f0fff0"
-                    border = "#44aa44"
+                    border = "#198754"
                     badge = "OK"
-                    badge_bg = "#44aa44"
+                    badge_bg = "#198754"
 
-                bar_color = "#ff4444" if prob > 70 else "#ffaa00" if prob > 30 else "#44aa44"
-                dias_color = "#ff4444" if dias <= 2 else "#ffaa00" if dias <= 5 else "#44aa44"
+                bar_color = "#DC3545" if prob > 70 else "#FFC107" if prob > 30 else "#198754"
+                dias_color = "#DC3545" if dias <= 2 else "#FFC107" if dias <= 5 else "#198754"
 
                 st.markdown(
                     f"""
 <div style="background:{bg}; border-left:5px solid {border}; border-radius:6px; padding:14px 18px; margin-bottom:10px; display:flex; align-items:center; gap:20px; flex-wrap:wrap">
     <div style="min-width:100px">
-        <div style="font-weight:bold; color:#003366">{r['orden']}</div>
-        <div style="font-size:11px; color:#666">{r['fecha']}</div>
+        <div style="font-weight:bold; color:#003366">{r['maquina']}</div>
+        <div style="font-size:11px; color:#666">{r['codigo']}</div>
     </div>
     <div style="flex:1; min-width:150px">
         <div style="display:flex; justify-content:space-between; font-size:11px; color:#555; margin-bottom:3px">
@@ -945,6 +905,54 @@ if st.session_state.rol == "ADMINISTRADOR":
                 )
             else:
                 st.success("Todos los equipos se encuentran en condiciones optimas de operacion.")
+
+            # ── Modelo ML ──────────────────────────────────
+            st.divider()
+            with st.expander("Modelo Machine Learning - Detalle"):
+                st.markdown("""
+**Algoritmo:** Arbol de decision multi-variable (modelo heuristico)
+
+**Variables de entrada:**
+| Variable | Descripcion |
+|---|---|
+| `horas_desde_ultimo_mant` | Horas acumuladas desde el ultimo mantenimiento |
+| `intervalo_mant_horas` | Intervalo programado entre mantenimientos |
+| `horas_totales_maquina` | Vida total de la maquina (horometro) |
+| `capacidad_ton` | Capacidad en toneladas |
+| `tipo_equipo` | Tipo de grua (oruga, movil, todoterreno) |
+| `consumo_teorico_gh` | Consumo teorico en galones/hora |
+| `relacion_consumo_real` | Consumo real / consumo teorico (> 1.15 = anormal) |
+| `alertas_previas` | Numero de alertas de consumo anomalo previas |
+
+**Pesos del modelo:**
+- Mantenimiento: 45%
+- Vida util: 20%
+- Consumo anomalo: 15%
+- Capacidad: 10%
+- Alertas previas: 10%
+
+**Factores de ajuste por tipo de equipo:**
+- Oruga: ×1.2 (mayor desgaste)
+- Todoterreno: ×1.1
+- Movil: ×1.0
+
+**Clasificacion de riesgo:**
+- CRITICO (≥85%): requiere mantenimiento inmediato
+- MEDIO (60-84%): programar mantenimiento
+- BAJO (<60%): condiciones normales
+""")
+                st.markdown("---")
+                st.markdown("**Falsos Positivos y Falsos Negativos**")
+                st.markdown("""
+Este modelo heuristico no genera falsos positivos/negativos en el sentido clasico porque no se entrena con datos historicos etiquetados.
+
+En su lugar, utiliza reglas de ingenieria y pesos asignados por un experto. Para obtener metricas de precision (F1-score, matriz de confusion) se necesitaria:
+1. Un historial de fallos reales etiquetados
+2. Entrenar un modelo supervisado (Random Forest, XGBoost, etc.) con esos datos
+3. Evaluar sobre un conjunto de prueba
+
+Actualmente el sistema funciona como un **sistema experto basado en reglas**, no como un modelo de ML entrenado.
+""")
         else:
             st.info("No hay predicciones disponibles")
 

@@ -535,21 +535,56 @@ async def exportar_valorizacion_pdf():
 
 @app.get("/api/v1/reportes/predictivo")
 async def obtener_predictivo():
-    reportes = await reporte_repo.obtener_todos()
+    maquinas = await maquina_repo.obtener_todas()
+    ordenes = await orden_repo.obtener_todas()
+    ordenes_por_maq = {}
+    for o in ordenes:
+        mid = str(o.maquina_id)
+        if mid not in ordenes_por_maq:
+            ordenes_por_maq[mid] = []
+        ordenes_por_maq[mid].append(o)
+
     resultados = []
-    for r in reportes:
-        orden = await orden_repo.obtener_por_id(r.orden_id)
-        criticidad = predictive.obtener_criticidad(float(r.probabilidad_fallo))
-        diagnostico = predictive.diagnosticar(float(r.probabilidad_fallo), r.dias_restantes_mant)
-        resultados.append(
-            {
-                "id": str(r.id),
-                "orden": orden.numero_orden if orden else "N/A",
-                "fecha": r.fecha.isoformat(),
-                "probabilidad_fallo": float(r.probabilidad_fallo),
-                "dias_restantes_mant": r.dias_restantes_mant,
-                "criticidad": criticidad,
-                "diagnostico": diagnostico,
-            }
+    for m in maquinas:
+        reportes_maq = []
+        for o in ordenes_por_maq.get(str(m.id), []):
+            rs = await reporte_repo.listar_por_orden(o.id)
+            reportes_maq.extend(rs)
+
+        total_horas = sum(float(r.horas_trabajadas) for r in reportes_maq)
+        alertas = sum(1 for r in reportes_maq if r.alerta_robo)
+        consumo_total = sum(float(r.galones_consumidos) for r in reportes_maq)
+
+        ct = float(m.consumo_teorico_gh)
+        if ct <= 0 or ct > 15:
+            ct = 5.0
+        relacion = (consumo_total / max(total_horas, 0.1)) / ct if ct > 0 else 1.0
+
+        prob, dias = predictive.evaluar(
+            horas_desde_ultimo_mant=float(m.horas_desde_ultimo_mant),
+            intervalo_mant_horas=float(m.intervalo_mant_horas),
+            horas_totales_maquina=float(m.horometro_actual),
+            capacidad_ton=m.capacidad_ton,
+            tipo_equipo=m.tipo.split()[-1].lower() if m.tipo else "movil",
+            consumo_teorico_gh=ct,
+            relacion_consumo_real=relacion,
+            alertas_previas=alertas,
         )
+
+        criticidad = predictive.obtener_criticidad(prob)
+        diagnostico = predictive.diagnosticar(prob, dias)
+
+        resultados.append({
+            "id": str(m.id),
+            "maquina": m.nombre_completo,
+            "codigo": m.codigo_interno,
+            "probabilidad_fallo": prob,
+            "dias_restantes_mant": dias,
+            "criticidad": criticidad,
+            "diagnostico": diagnostico,
+            "total_horas": total_horas,
+            "horometro_actual": float(m.horometro_actual),
+            "intervalo_mant": float(m.intervalo_mant_horas),
+            "horas_desde_mant": float(m.horas_desde_ultimo_mant),
+        })
     return resultados

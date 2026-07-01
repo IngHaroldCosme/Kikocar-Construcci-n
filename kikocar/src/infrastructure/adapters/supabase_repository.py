@@ -227,6 +227,10 @@ class SupabaseOrdenRepository(OrdenRepositoryPort):
             return _map_orden(resp.data[0])
         return None
 
+    async def obtener_todas(self) -> List[OrdenServicio]:
+        resp = self.client.table("ordenes_servicio").select("*").order("fecha_inicio", desc=True).execute()
+        return [_map_orden(r) for r in resp.data]
+
     async def actualizar_estado_orden(self, orden_id: UUID, nuevo_estado: str) -> None:
         self.client.table("ordenes_servicio").update({"estado": nuevo_estado}).eq(
             "id", str(orden_id)

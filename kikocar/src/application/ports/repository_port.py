@@ -53,6 +53,9 @@ class OrdenRepositoryPort(ABC):
     async def obtener_activa_por_maquina(self, maquina_id: UUID) -> Optional[OrdenServicio]: ...
 
     @abstractmethod
+    async def obtener_todas(self) -> List[OrdenServicio]: ...
+
+    @abstractmethod
     async def actualizar_estado_orden(self, orden_id: UUID, nuevo_estado: str) -> None: ...
 
 
