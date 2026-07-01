@@ -908,51 +908,62 @@ if st.session_state.rol == "ADMINISTRADOR":
 
             # ── Modelo ML ──────────────────────────────────
             st.divider()
-            with st.expander("Modelo Machine Learning - Detalle"):
-                st.markdown("""
-**Algoritmo:** Arbol de decision multi-variable (modelo heuristico)
+            with st.expander("Modelo Machine Learning - Detalle (PPT)"):
+                metricas = api_get("/api/v1/modelo/metricas")
+                if metricas:
+                    st.markdown(f"""
+**Algoritmo:** DecisionTreeClassifier (scikit-learn)
+**Profundidad:** {metricas['profundidad']} niveles | **Hojas:** {metricas['n_hojas']}
+**Entrenamiento:** {metricas['n_entrenamiento']} muestras | **Prueba:** {metricas['n_prueba']} muestras
 
-**Variables de entrada:**
-| Variable | Descripcion |
+### Metricas de Evaluacion
+| Metrica | Valor |
 |---|---|
-| `horas_desde_ultimo_mant` | Horas acumuladas desde el ultimo mantenimiento |
-| `intervalo_mant_horas` | Intervalo programado entre mantenimientos |
-| `horas_totales_maquina` | Vida total de la maquina (horometro) |
-| `capacidad_ton` | Capacidad en toneladas |
-| `tipo_equipo` | Tipo de grua (oruga, movil, todoterreno) |
-| `consumo_teorico_gh` | Consumo teorico en galones/hora |
-| `relacion_consumo_real` | Consumo real / consumo teorico (> 1.15 = anormal) |
-| `alertas_previas` | Numero de alertas de consumo anomalo previas |
-
-**Pesos del modelo:**
-- Mantenimiento: 45%
-- Vida util: 20%
-- Consumo anomalo: 15%
-- Capacidad: 10%
-- Alertas previas: 10%
-
-**Factores de ajuste por tipo de equipo:**
-- Oruga: ×1.2 (mayor desgaste)
-- Todoterreno: ×1.1
-- Movil: ×1.0
-
-**Clasificacion de riesgo:**
-- CRITICO (≥85%): requiere mantenimiento inmediato
-- MEDIO (60-84%): programar mantenimiento
-- BAJO (<60%): condiciones normales
+| Accuracy | **{metricas['accuracy']:.2%}** |
+| Precision (weighted) | **{metricas['precision_weighted']:.2%}** |
+| Recall (weighted) | **{metricas['recall_weighted']:.2%}** |
+| F1-Score (weighted) | **{metricas['f1_weighted']:.2%}** |
 """)
-                st.markdown("---")
-                st.markdown("**Falsos Positivos y Falsos Negativos**")
-                st.markdown("""
-Este modelo heuristico no genera falsos positivos/negativos en el sentido clasico porque no se entrena con datos historicos etiquetados.
 
-En su lugar, utiliza reglas de ingenieria y pesos asignados por un experto. Para obtener metricas de precision (F1-score, matriz de confusion) se necesitaria:
-1. Un historial de fallos reales etiquetados
-2. Entrenar un modelo supervisado (Random Forest, XGBoost, etc.) con esos datos
-3. Evaluar sobre un conjunto de prueba
+                    cm = metricas["confusion_matrix"]
+                    labels = metricas["clases"]
+                    st.markdown("### Matriz de Confusion")
+                    cm_rows = ["| " + " | ".join([""] + labels) + " |"]
+                    cm_rows.append("| " + " | ".join(["---"] * (len(labels) + 1)) + " |")
+                    for i, label in enumerate(labels):
+                        vals = " | ".join(str(cm[i][j]) for j in range(len(labels)))
+                        cm_rows.append(f"| **{label}** | {vals} |")
+                    st.markdown("\n".join(cm_rows))
 
-Actualmente el sistema funciona como un **sistema experto basado en reglas**, no como un modelo de ML entrenado.
-""")
+                    st.markdown("### Falsos Positivos y Falsos Negativos")
+                    fpfn_rows = ["| Clase | FP | FN | Muestras Reales |",
+                                 "|---|---|---|---|"]
+                    for i, label in enumerate(labels):
+                        fp = sum(cm[j][i] for j in range(len(labels))) - cm[i][i]
+                        fn = sum(cm[i][j] for j in range(len(labels))) - cm[i][i]
+                        total_real = sum(cm[i][j] for j in range(len(labels)))
+                        fpfn_rows.append(f"| {label} | {fp} | {fn} | {total_real} |")
+                    st.markdown("\n".join(fpfn_rows))
+
+                    st.markdown("### Importancia de Variables")
+                    feat_df = pd.DataFrame({
+                        "Variable": metricas["feature_names"],
+                        "Importancia": metricas["feature_importances"],
+                    }).sort_values("Importancia", ascending=False)
+                    st.dataframe(feat_df, use_container_width=True, hide_index=True)
+
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.markdown("**Arbol de Decision**")
+                        st.image(f"{API_BASE}/api/v1/modelo/arbol")
+                    with col_b:
+                        st.markdown("**Matriz de Confusion**")
+                        st.image(f"{API_BASE}/api/v1/modelo/matriz-confusion")
+
+                    st.markdown("**Importancia de Variables**")
+                    st.image(f"{API_BASE}/api/v1/modelo/importancia")
+                else:
+                    st.info("Ejecute train_model.py para generar el modelo y las metricas.")
         else:
             st.info("No hay predicciones disponibles")
 

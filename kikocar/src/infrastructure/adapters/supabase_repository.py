@@ -414,22 +414,45 @@ class SupabaseDashboardAnalytics(DashboardAnalyticsPort):
 
     async def flota_completa(self) -> list:
         maq_resp = self.client.table("maquinaria").select("*").order("codigo_interno").execute()
-        # Precargar ordenes activas y operadores
         ord_resp = self.client.table("ordenes_servicio").select("*").in_("estado", ["ACTIVA", "EN_PROGRESO"]).execute()
+        todas_ords = self.client.table("ordenes_servicio").select("*").execute()
         op_resp = self.client.table("operadores").select("*").execute()
         ordenes_activas = ord_resp.data if ord_resp.data else []
+        todas_las_ordenes = todas_ords.data if todas_ords.data else []
         operadores = {o["id"]: f"{o['nombre']} {o['apellido']}" for o in (op_resp.data or [])}
+
+        # Agrupar ordenes por maquina
+        ordenes_por_maq = {}
+        for o in todas_las_ordenes:
+            mid = o.get("maquina_id")
+            if mid:
+                ordenes_por_maq.setdefault(mid, []).append(o)
 
         resultado = []
         for m in maq_resp.data or []:
-            orden = next((o for o in ordenes_activas if o["maquina_id"] == m["id"]), None)
+            mid = m["id"]
+            orden = next((o for o in ordenes_activas if o["maquina_id"] == mid), None)
 
-            total_horas = 0
+            # Acumular todas las horas de todas las ordenes de esta maquina
+            total_horas_orden_actual = 0
+            total_horas_historicas = 0
             if orden:
                 rep_resp = self.client.table("reportes_diarios").select("horas_trabajadas").eq("orden_id", orden["id"]).execute()
-                total_horas = sum(float(r["horas_trabajadas"]) for r in (rep_resp.data or []))
+                total_horas_orden_actual = sum(float(r["horas_trabajadas"]) for r in (rep_resp.data or []))
 
-            desde_mant = max(float(m["horometro_actual"]) - float(m["ultimo_mant_horas"]), 0)
+            for o in ordenes_por_maq.get(mid, []):
+                rep_resp = self.client.table("reportes_diarios").select("horas_trabajadas").eq("orden_id", o["id"]).execute()
+                total_horas_historicas += sum(float(r["horas_trabajadas"]) for r in (rep_resp.data or []))
+
+            # horometro calculado desde el ingreso de la ultima orden + horas acumuladas
+            ordenes_maq_ord = sorted(ordenes_por_maq.get(mid, []), key=lambda x: x.get("fecha_inicio", ""), reverse=True)
+            horometro_ingreso_ult = float(ordenes_maq_ord[0].get("horometro_ingreso", 0)) if ordenes_maq_ord else 0
+            horometro_calculado = max(
+                float(m["horometro_actual"]),
+                horometro_ingreso_ult + total_horas_historicas,
+            )
+
+            desde_mant = max(horometro_calculado - float(m["ultimo_mant_horas"]), 0)
             restantes = max(float(m["intervalo_mant_horas"]) - desde_mant, 0)
 
             operador_nombre = operadores.get(orden["operador_id"]) if orden else None
@@ -441,11 +464,11 @@ class SupabaseDashboardAnalytics(DashboardAnalyticsPort):
                 "modelo": m["modelo"],
                 "tipo": m["tipo"],
                 "capacidad_ton": m["capacidad_ton"],
-                "horometro_actual": float(m["horometro_actual"]),
+                "horometro_actual": round(horometro_calculado, 2),
                 "ultimo_mant_horas": float(m["ultimo_mant_horas"]),
                 "intervalo_mant_horas": float(m["intervalo_mant_horas"]),
-                "horas_desde_ultimo_mant": desde_mant,
-                "horas_restantes_mant": restantes,
+                "horas_desde_ultimo_mant": round(desde_mant, 2),
+                "horas_restantes_mant": round(restantes, 2),
                 "estado_operativo": m["estado_operativo"],
                 "notas_mantenimiento": m.get("notas_mantenimiento", ""),
                 "nombre_completo": f"{m['marca']} {m['modelo']} ({m['codigo_interno']})",
@@ -455,6 +478,7 @@ class SupabaseDashboardAnalytics(DashboardAnalyticsPort):
                 "orden_id": orden["id"] if orden else None,
                 "numero_orden": orden["numero_orden"] if orden else None,
                 "orden_monto": float(orden["monto"]) if orden else 0,
-                "total_horas_orden": total_horas,
+                "total_horas_orden": total_horas_orden_actual,
+                "total_horas_historicas": total_horas_historicas,
             })
         return resultado

@@ -1,29 +1,45 @@
-from decimal import Decimal
-from math import exp
-from typing import Optional, Tuple
+import os
+import pickle
+from pathlib import Path
+from typing import Tuple
+
+import numpy as np
+
+_MODEL_PATH = Path(__file__).parent.parent.parent / "backend" / "modelo_arbol.pkl"
+
+
+def _cargar_modelo():
+    if _MODEL_PATH.exists():
+        with open(_MODEL_PATH, "rb") as f:
+            return pickle.load(f)
+    return None
+
+
+_MODELO = None
+_LOADED = False
+
+
+def _get_model():
+    global _MODELO, _LOADED
+    if not _LOADED:
+        _MODELO = _cargar_modelo()
+        _LOADED = True
+    return _MODELO
 
 
 class PredictiveAdapter:
     """
-    Modelo de diagnóstico multi-variable (árbol de decisión mejorado).
-    Evalúa:
+    Modelo de Machine Learning: Decision Tree (scikit-learn).
+    Entrenado con 8000 muestras sinteticas basadas en reglas de ingenieria.
 
-      Variables de entrada:
-        - horas_desde_ultimo_mant : horas acumuladas desde último mant.
-        - intervalo_mant_horas    : intervalo programado entre mant.
-        - horas_totales_maquina   : vida total de la máquina (horómetro)
-        - capacidad_ton           : capacidad en toneladas
-        - tipo_equipo             : "oruga", "movil", "todoterreno"
-        - consumo_teorico_gh      : galones/hora teóricos
-        - relacion_consumo_real   : consumo_real / consumo_teorico (>1.15 = alerta)
-        - alertas_previas         : número de alertas de robo previas
+    Features de entrada (6):
+      - score_mant      : horas_desde_ultimo_mant / intervalo_mant_horas (0-2)
+      - score_vida      : horas_totales_maquina / 15000 (0-1.5)
+      - score_consumo   : (relacion_consumo_real - 1.0) * 2 (0-3)
+      - score_capacidad : capacidad_ton / 500 (0-1)
+      - score_alertas   : alertas_previas * 0.15 (0-1)
+      - tipo_factor     : 1.2 oruga, 1.1 todoterreno, 1.0 movil
     """
-
-    PESO_MANTENIMIENTO = 0.45
-    PESO_VIDA = 0.20
-    PESO_CONSUMO = 0.15
-    PESO_CAPACIDAD = 0.10
-    PESO_ALERTAS = 0.10
 
     def evaluar(
         self,
@@ -37,62 +53,86 @@ class PredictiveAdapter:
         alertas_previas: int = 0,
         tipo_frente: str = "moderado",
     ) -> Tuple[float, int]:
-        # 1. Score por mantenimiento (base)
-        horas_rel = horas_desde_ultimo_mant / max(intervalo_mant_horas, 1)
-        score_mant = min(horas_rel, 2.0)
-
-        # 2. Score por vida útil (fatiga acumulada)
-        vida_util_estimada = 15000
-        score_vida = min(horas_totales_maquina / vida_util_estimada, 1.5)
-
-        # 3. Score por consumo anómalo (desgaste)
+        # Calcular features
+        score_mant = min(horas_desde_ultimo_mant / max(intervalo_mant_horas, 1), 2.0)
+        score_vida = min(horas_totales_maquina / 15000, 1.5)
         score_consumo = max(0, (relacion_consumo_real - 1.0) * 2)
-
-        # 4. Score por capacidad (más tonelaje = más estrés)
         score_capacidad = min(capacidad_ton / 500, 1.0)
-
-        # 5. Score por historial de alertas
         score_alertas = min(alertas_previas * 0.15, 1.0)
 
-        # 6. Factor por tipo de frente
-        frente_factor = {"pesado": 1.3, "moderado": 1.0, "ligero": 0.7}.get(
-            tipo_frente.lower(), 1.0
-        )
-
-        # 7. Factor por tipo de equipo
-        equipo_factor = {"oruga": 1.2, "todoterreno": 1.1, "movil": 1.0}.get(
+        tipo_factor = {"oruga": 1.2, "todoterreno": 1.1, "movil": 1.0}.get(
             tipo_equipo.lower(), 1.0
         )
 
+        features = np.array([[
+            score_mant,
+            score_vida,
+            score_consumo,
+            score_capacidad,
+            score_alertas,
+            tipo_factor,
+        ]])
+
+        modelo = _get_model()
+        if modelo is not None:
+            clase = int(modelo.predict(features)[0])
+            proba = modelo.predict_proba(features)[0]
+
+            # Probabilidad como el maximo de las probabilidades predichas
+            probabilidad = round(float(proba[clase] * 100), 2)
+
+            # Dias restantes
+            horas_restantes = max(intervalo_mant_horas - horas_desde_ultimo_mant, 0)
+            dias_restantes = int(horas_restantes / 8)
+
+            # Penalizar dias si es CRITICO
+            if clase == 2:
+                dias_restantes = max(dias_restantes - 5, 0)
+            elif clase == 1:
+                dias_restantes = max(dias_restantes - 2, 0)
+
+            return (probabilidad, dias_restantes)
+
+        # Fallback heuristico si no hay modelo
         score_total = (
-            score_mant * self.PESO_MANTENIMIENTO
-            + score_vida * self.PESO_VIDA
-            + score_consumo * self.PESO_CONSUMO
-            + score_capacidad * self.PESO_CAPACIDAD
-            + score_alertas * self.PESO_ALERTAS
-        ) * frente_factor * equipo_factor
+            score_mant * 0.45
+            + score_vida * 0.20
+            + score_consumo * 0.15
+            + score_capacidad * 0.10
+            + score_alertas * 0.10
+        ) * tipo_factor
 
         probabilidad = min(round(score_total * 100, 2), 99.99)
-
-        # Días restantes para mantenimiento
         horas_restantes = max(intervalo_mant_horas - horas_desde_ultimo_mant, 0)
-        dias_trabajo = 8
-        dias_restantes = int(horas_restantes / dias_trabajo)
-
-        # Penalizar días si score es muy alto
+        dias_restantes = int(horas_restantes / 8)
         if score_total > 1.5:
             dias_restantes = max(dias_restantes - int(score_total * 10), 0)
 
         return (probabilidad, dias_restantes)
 
     def obtener_criticidad(self, probabilidad: float) -> str:
+        modelo = _get_model()
+        if modelo is not None:
+            # Mapear probabilidad a clase
+            if probabilidad >= 70:
+                return "CRITICO"
+            elif probabilidad >= 35:
+                return "MEDIO"
+            return "BAJO"
         if probabilidad >= 85:
-            return "CRÍTICO"
+            return "CRITICO"
         elif probabilidad >= 60:
             return "MEDIO"
         return "BAJO"
 
     def diagnosticar(self, probabilidad: float, dias_restantes: int) -> str:
+        modelo = _get_model()
+        if modelo is not None:
+            if probabilidad >= 70:
+                return "REQUIERE MANTENIMIENTO INMEDIATO"
+            elif probabilidad >= 35:
+                return f"Programar mantenimiento en {dias_restantes} dias"
+            return "Equipo en condiciones optimas"
         if probabilidad >= 85:
             return "REQUIERE MANTENIMIENTO INMEDIATO"
         elif probabilidad >= 60:

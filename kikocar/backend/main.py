@@ -1,6 +1,8 @@
+import json
 import os
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
@@ -8,7 +10,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from src.domain.entities import Mantenimiento, OrdenServicio, ReporteDiario
 from src.infrastructure.adapters.pdf_reporte import generar_pdf_valorizacion
@@ -208,6 +210,13 @@ async def crear_orden(data: OrdenCreateRequest):
             operador_id=UUID(data.operador_id),
         )
     )
+
+    # Sincronizar horometro de la maquina con el ingreso de la orden
+    if data.horometro_ingreso is not None:
+        await maquina_repo.actualizar_horometro(
+            UUID(data.maquina_id), data.horometro_ingreso
+        )
+
     return {"mensaje": "Orden creada exitosamente", "id": str(orden.id)}
 
 
@@ -367,7 +376,7 @@ async def crear_reporte(data: ReporteCreateRequest):
     )
 
     await maquina_repo.actualizar_horometro(
-        orden.maquina_id, float(maquina.horometro_actual) + float(horas_trabajadas)
+        orden.maquina_id, data.horometro_fin
     )
 
     return {
@@ -588,3 +597,39 @@ async def obtener_predictivo():
             "horas_desde_mant": float(m.horas_desde_ultimo_mant),
         })
     return resultados
+
+
+_BACKEND_DIR = Path(__file__).parent
+
+
+@app.get("/api/v1/modelo/metricas")
+async def obtener_metricas_ml():
+    path = _BACKEND_DIR / "metricas_ml.json"
+    if not path.exists():
+        raise HTTPException(404, "Modelo no entrenado. Ejecute train_model.py primero.")
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+@app.get("/api/v1/modelo/arbol")
+async def obtener_arbol_img():
+    path = _BACKEND_DIR / "arbol_decision.png"
+    if not path.exists():
+        raise HTTPException(404, "Imagen no disponible")
+    return FileResponse(path, media_type="image/png")
+
+
+@app.get("/api/v1/modelo/matriz-confusion")
+async def obtener_matriz_img():
+    path = _BACKEND_DIR / "matriz_confusion.png"
+    if not path.exists():
+        raise HTTPException(404, "Imagen no disponible")
+    return FileResponse(path, media_type="image/png")
+
+
+@app.get("/api/v1/modelo/importancia")
+async def obtener_importancia_img():
+    path = _BACKEND_DIR / "importancia_vars.png"
+    if not path.exists():
+        raise HTTPException(404, "Imagen no disponible")
+    return FileResponse(path, media_type="image/png")
