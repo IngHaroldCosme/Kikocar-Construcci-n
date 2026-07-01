@@ -309,9 +309,16 @@ class SupabaseReporteRepository(ReporteRepositoryPort):
         resp = self.client.table("reportes_diarios").select("*").order("fecha", desc=True).execute()
         ordenes_resp = self.client.table("ordenes_servicio").select("*").execute()
         ordenes_map = {o["id"]: o for o in (ordenes_resp.data or [])}
+        maquinas_resp = self.client.table("maquinaria").select("*").execute()
+        maquinas_map = {m["id"]: m for m in (maquinas_resp.data or [])}
         resultado = []
         for r in resp.data or []:
             orden = ordenes_map.get(r["orden_id"])
+            ct = 5.0
+            if orden:
+                maq = maquinas_map.get(orden.get("maquina_id"))
+                if maq:
+                    ct = float(maq.get("consumo_teorico_gh", 5.0))
             resultado.append({
                 "id": r["id"],
                 "orden": orden["numero_orden"] if orden else "N/A",
@@ -327,6 +334,7 @@ class SupabaseReporteRepository(ReporteRepositoryPort):
                 "fallas_reportadas": r.get("fallas_reportadas"),
                 "requiere_atencion": r.get("requiere_atencion", False),
                 "alerta_robo": r.get("alerta_robo", False),
+                "consumo_teorico_gh": ct,
             })
         return resultado
 
