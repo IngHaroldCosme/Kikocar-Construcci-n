@@ -313,6 +313,7 @@ class SupabaseReporteRepository(ReporteRepositoryPort):
         for r in resp.data or []:
             orden = ordenes_map.get(r["orden_id"])
             resultado.append({
+                "id": r["id"],
                 "orden": orden["numero_orden"] if orden else "N/A",
                 "cliente": orden["cliente"] if orden else "N/A",
                 "monto": float(orden["monto"]) if orden else 0,

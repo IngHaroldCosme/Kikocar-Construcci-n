@@ -810,23 +810,63 @@ if st.session_state.rol == "ADMINISTRADOR":
             st.info("No hay ordenes activas registradas")
 
     elif nav == "Control de Combustible":
-        st.subheader("Alertas de Consumo de Combustible")
-        alertas = api_get("/api/v1/reportes/alertas")
-        if alertas:
-            df = pd.DataFrame(alertas)
-            df["alerta_robo"] = df["alerta_robo"].apply(
-                lambda x: "SI (consumo excede umbral)" if x else "NO"
-            )
+        st.subheader("Control de Consumo de Combustible")
+
+        todos_reportes = api_get("/api/v1/reportes/valorizacion")
+        maquinas = api_get("/api/v1/maquinaria")
+        consumo_map = {}
+        if maquinas:
+            consumo_map = {m["nombre_completo"]: float(m["consumo_teorico_gh"]) for m in maquinas}
+
+        if todos_reportes:
+            rows = []
+            for r in todos_reportes:
+                gal_cons = max(r["galones_inicial"] - r["galones_final"], 0)
+                horas = r["horas_trabajadas"]
+                tasa_real = gal_cons / max(horas, 0.1)
+                alerta = r.get("alerta_robo", False)
+                rows.append({
+                    "Fecha": r["fecha"][:10],
+                    "Orden": r["orden"],
+                    "Cliente": r.get("cliente", ""),
+                    "Horas": f"{horas:.1f}",
+                    "Gal.Ini": f"{r['galones_inicial']:.1f}",
+                    "Gal.Fin": f"{r['galones_final']:.1f}",
+                    "Cons.Reales": f"{gal_cons:.1f} gal",
+                    "Tasa Real": f"{tasa_real:.2f} gal/h",
+                    "Alerta": "SI" if alerta else "NO",
+                })
+            df = pd.DataFrame(rows)
 
             def highlight_alert(row):
-                if "SI" in str(row["alerta_robo"]):
+                if row["Alerta"] == "SI":
                     return ["background-color: #ffcccc"] * len(row)
                 return [""] * len(row)
 
             styled = df.style.apply(highlight_alert, axis=1)
             st.dataframe(styled, use_container_width=True, hide_index=True)
+
+            st.info(
+                "La alerta se dispara cuando el consumo real supera en 15% el consumo teorico de la maquina. "
+                "Si no ves alertas, revisa el consumo teorico de cada maquina abajo."
+            )
         else:
-            st.info("No hay reportes con alertas de consumo")
+            st.info("No hay reportes registrados")
+
+        st.divider()
+
+        # Diagnostic del consumo teorico por maquina
+        st.subheader("Consumo Teorico por Maquina")
+        if maquinas:
+            for m in maquinas:
+                col_a, col_b = st.columns([3, 2])
+                with col_a:
+                    st.markdown(f"**{m['nombre_completo']}** ({m['codigo_interno']})")
+                with col_b:
+                    ct = float(m["consumo_teorico_gh"])
+                    st.markdown(f"Consumo teorico: **{ct:.2f} gal/h**")
+        else:
+            st.warning("No hay maquinas registradas para verificar consumo teorico")
 
     elif nav == "Mantenimiento Predictivo":
         st.subheader("Estado de Mantenimiento de Flota")
