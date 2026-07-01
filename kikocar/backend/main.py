@@ -224,7 +224,7 @@ async def crear_orden(data: OrdenCreateRequest):
 async def obtener_orden_operador(operador_id: str):
     orden = await orden_repo.obtener_por_operador(UUID(operador_id))
     if not orden:
-        raise HTTPException(404, "No hay orden activa asignada a este operador")
+        return None
 
     maquina = await maquina_repo.obtener_por_id(orden.maquina_id)
     ultimo_reporte = await reporte_repo.obtener_ultimo_reporte_por_orden(orden.id)
@@ -542,10 +542,28 @@ async def exportar_valorizacion_pdf():
     )
 
 
+@app.get("/api/v1/reportes/valorizacion/pdf/{orden_nro}")
+async def exportar_valorizacion_orden_pdf(orden_nro: str):
+    data = await reporte_repo.obtener_valorizacion()
+    filtrado = [r for r in data if r["orden"] == orden_nro]
+    if not filtrado:
+        raise HTTPException(404, f"No hay reportes para la orden {orden_nro}")
+    pdf_bytes = generar_pdf_valorizacion(filtrado)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=valorizacion_{orden_nro}.pdf"},
+    )
+
+
 @app.get("/api/v1/reportes/predictivo")
 async def obtener_predictivo():
-    maquinas = await maquina_repo.obtener_todas()
-    ordenes = await orden_repo.obtener_todas()
+    try:
+        maquinas = await maquina_repo.listar_todas()
+        ordenes = await orden_repo.obtener_todas()
+    except Exception as e:
+        raise HTTPException(500, f"Error cargando datos: {e}")
+
     ordenes_por_maq = {}
     for o in ordenes:
         mid = str(o.maquina_id)
@@ -555,47 +573,50 @@ async def obtener_predictivo():
 
     resultados = []
     for m in maquinas:
-        reportes_maq = []
-        for o in ordenes_por_maq.get(str(m.id), []):
-            rs = await reporte_repo.listar_por_orden(o.id)
-            reportes_maq.extend(rs)
+        try:
+            reportes_maq = []
+            for o in ordenes_por_maq.get(str(m.id), []):
+                rs = await reporte_repo.listar_por_orden(o.id)
+                reportes_maq.extend(rs)
 
-        total_horas = sum(float(r.horas_trabajadas) for r in reportes_maq)
-        alertas = sum(1 for r in reportes_maq if r.alerta_robo)
-        consumo_total = sum(float(r.galones_consumidos) for r in reportes_maq)
+            total_horas = sum(float(r.horas_trabajadas) for r in reportes_maq)
+            alertas = sum(1 for r in reportes_maq if r.alerta_robo)
+            consumo_total = sum(float(r.galones_consumidos) for r in reportes_maq)
 
-        ct = float(m.consumo_teorico_gh)
-        if ct <= 0 or ct > 15:
-            ct = 5.0
-        relacion = (consumo_total / max(total_horas, 0.1)) / ct if ct > 0 else 1.0
+            ct = float(m.consumo_teorico_gh)
+            if ct <= 0 or ct > 15:
+                ct = 5.0
+            relacion = (consumo_total / max(total_horas, 0.1)) / ct if ct > 0 else 1.0
 
-        prob, dias = predictive.evaluar(
-            horas_desde_ultimo_mant=float(m.horas_desde_ultimo_mant),
-            intervalo_mant_horas=float(m.intervalo_mant_horas),
-            horas_totales_maquina=float(m.horometro_actual),
-            capacidad_ton=m.capacidad_ton,
-            tipo_equipo=m.tipo.split()[-1].lower() if m.tipo else "movil",
-            consumo_teorico_gh=ct,
-            relacion_consumo_real=relacion,
-            alertas_previas=alertas,
-        )
+            prob, dias = predictive.evaluar(
+                horas_desde_ultimo_mant=float(m.horas_desde_ultimo_mant),
+                intervalo_mant_horas=float(m.intervalo_mant_horas),
+                horas_totales_maquina=float(m.horometro_actual),
+                capacidad_ton=m.capacidad_ton,
+                tipo_equipo=m.tipo.split()[-1].lower() if m.tipo else "movil",
+                consumo_teorico_gh=ct,
+                relacion_consumo_real=relacion,
+                alertas_previas=alertas,
+            )
 
-        criticidad = predictive.obtener_criticidad(prob)
-        diagnostico = predictive.diagnosticar(prob, dias)
+            criticidad = predictive.obtener_criticidad(prob)
+            diagnostico = predictive.diagnosticar(prob, dias)
 
-        resultados.append({
-            "id": str(m.id),
-            "maquina": m.nombre_completo,
-            "codigo": m.codigo_interno,
-            "probabilidad_fallo": prob,
-            "dias_restantes_mant": dias,
-            "criticidad": criticidad,
-            "diagnostico": diagnostico,
-            "total_horas": total_horas,
-            "horometro_actual": float(m.horometro_actual),
-            "intervalo_mant": float(m.intervalo_mant_horas),
-            "horas_desde_mant": float(m.horas_desde_ultimo_mant),
-        })
+            resultados.append({
+                "id": str(m.id),
+                "maquina": m.nombre_completo,
+                "codigo": m.codigo_interno,
+                "probabilidad_fallo": prob,
+                "dias_restantes_mant": dias,
+                "criticidad": criticidad,
+                "diagnostico": diagnostico,
+                "total_horas": total_horas,
+                "horometro_actual": float(m.horometro_actual),
+                "intervalo_mant": float(m.intervalo_mant_horas),
+                "horas_desde_mant": float(m.horas_desde_ultimo_mant),
+            })
+        except Exception as e:
+            raise HTTPException(500, f"Error procesando maquina {m.codigo_interno}: {e}")
     return resultados
 
 

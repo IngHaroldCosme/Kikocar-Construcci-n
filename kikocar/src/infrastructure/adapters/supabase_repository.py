@@ -446,7 +446,8 @@ class SupabaseDashboardAnalytics(DashboardAnalyticsPort):
 
             # horometro calculado desde el ingreso de la ultima orden + horas acumuladas
             ordenes_maq_ord = sorted(ordenes_por_maq.get(mid, []), key=lambda x: x.get("fecha_inicio", ""), reverse=True)
-            horometro_ingreso_ult = float(ordenes_maq_ord[0].get("horometro_ingreso", 0)) if ordenes_maq_ord else 0
+            horometro_ingreso_val = ordenes_maq_ord[0].get("horometro_ingreso") if ordenes_maq_ord else None
+            horometro_ingreso_ult = float(horometro_ingreso_val) if horometro_ingreso_val is not None else 0
             horometro_calculado = max(
                 float(m["horometro_actual"]),
                 horometro_ingreso_ult + total_horas_historicas,

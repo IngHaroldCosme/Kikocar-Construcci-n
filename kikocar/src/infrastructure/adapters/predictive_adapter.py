@@ -81,17 +81,17 @@ class PredictiveAdapter:
             # Probabilidad como el maximo de las probabilidades predichas
             probabilidad = round(float(proba[clase] * 100), 2)
 
-            # Dias restantes
-            horas_restantes = max(intervalo_mant_horas - horas_desde_ultimo_mant, 0)
-            dias_restantes = int(horas_restantes / 8)
+            # Horas restantes para mantenimiento
+            horas_rest = max(intervalo_mant_horas - horas_desde_ultimo_mant, 0)
+            horas_rest_int = int(round(horas_rest))
 
-            # Penalizar dias si es CRITICO
+            # Penalizar horas si es CRITICO o MEDIO
             if clase == 2:
-                dias_restantes = max(dias_restantes - 5, 0)
+                horas_rest_int = max(horas_rest_int - 40, 0)
             elif clase == 1:
-                dias_restantes = max(dias_restantes - 2, 0)
+                horas_rest_int = max(horas_rest_int - 16, 0)
 
-            return (probabilidad, dias_restantes)
+            return (probabilidad, horas_rest_int)
 
         # Fallback heuristico si no hay modelo
         score_total = (
@@ -103,12 +103,12 @@ class PredictiveAdapter:
         ) * tipo_factor
 
         probabilidad = min(round(score_total * 100, 2), 99.99)
-        horas_restantes = max(intervalo_mant_horas - horas_desde_ultimo_mant, 0)
-        dias_restantes = int(horas_restantes / 8)
+        horas_rest = max(intervalo_mant_horas - horas_desde_ultimo_mant, 0)
+        horas_rest_int = int(round(horas_rest))
         if score_total > 1.5:
-            dias_restantes = max(dias_restantes - int(score_total * 10), 0)
+            horas_rest_int = max(horas_rest_int - int(score_total * 80), 0)
 
-        return (probabilidad, dias_restantes)
+        return (probabilidad, horas_rest_int)
 
     def obtener_criticidad(self, probabilidad: float) -> str:
         modelo = _get_model()
@@ -125,18 +125,18 @@ class PredictiveAdapter:
             return "MEDIO"
         return "BAJO"
 
-    def diagnosticar(self, probabilidad: float, dias_restantes: int) -> str:
+    def diagnosticar(self, probabilidad: float, horas_restantes: int) -> str:
         modelo = _get_model()
         if modelo is not None:
             if probabilidad >= 70:
                 return "REQUIERE MANTENIMIENTO INMEDIATO"
             elif probabilidad >= 35:
-                return f"Programar mantenimiento en {dias_restantes} dias"
+                return f"Programar mantenimiento en {horas_restantes} h"
             return "Equipo en condiciones optimas"
         if probabilidad >= 85:
             return "REQUIERE MANTENIMIENTO INMEDIATO"
         elif probabilidad >= 60:
-            return f"Programar mantenimiento en {dias_restantes} dias"
+            return f"Programar mantenimiento en {horas_restantes} h"
         elif probabilidad >= 30:
-            return f"Monitoreo normal - prox. mant. en {dias_restantes} dias"
+            return f"Monitoreo normal - prox. mant. en {horas_restantes} h"
         return "Equipo en condiciones optimas"

@@ -223,6 +223,8 @@ if "operador_nombre" not in st.session_state:
 def api_get(path: str) -> Optional[list | dict]:
     try:
         resp = requests.get(f"{API_BASE}{path}", timeout=10)
+        if resp.status_code == 404:
+            return None
         resp.raise_for_status()
         return resp.json()
     except requests.RequestException as e:
@@ -862,7 +864,7 @@ if st.session_state.rol == "ADMINISTRADOR":
                     badge_bg = "#198754"
 
                 bar_color = "#DC3545" if prob > 70 else "#FFC107" if prob > 30 else "#198754"
-                dias_color = "#DC3545" if dias <= 2 else "#FFC107" if dias <= 5 else "#198754"
+                horas_color = "#DC3545" if dias <= 40 else "#FFC107" if dias <= 80 else "#198754"
 
                 st.markdown(
                     f"""
@@ -881,8 +883,8 @@ if st.session_state.rol == "ADMINISTRADOR":
         </div>
     </div>
     <div style="text-align:center; min-width:60px">
-        <div style="font-size:20px; font-weight:bold; color:{dias_color}">{dias}</div>
-        <div style="font-size:10px; color:#666">dias resto</div>
+        <div style="font-size:20px; font-weight:bold; color:{horas_color}">{dias}</div>
+        <div style="font-size:10px; color:#666">h resto</div>
     </div>
     <div style="background:{badge_bg}; color:white; padding:4px 14px; border-radius:12px; font-size:11px; font-weight:bold">{badge}</div>
     <div style="font-size:12px; color:#444; flex:1; min-width:180px">{r['diagnostico']}</div>
@@ -1116,7 +1118,7 @@ if st.session_state.rol == "ADMINISTRADOR":
                         "<p style='font-weight:bold; color:#003366; margin:0 0 10px 0'>DESCARGAR</p>",
                         unsafe_allow_html=True,
                     )
-                    pdf_bytes = api_get_raw("/api/v1/reportes/valorizacion/pdf")
+                    pdf_bytes = api_get_raw(f"/api/v1/reportes/valorizacion/pdf/{orden_nro}")
                     st.download_button(
                         label="Descargar PDF",
                         data=pdf_bytes,
