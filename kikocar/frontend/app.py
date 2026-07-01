@@ -810,32 +810,17 @@ if st.session_state.rol == "ADMINISTRADOR":
             st.info("No hay ordenes activas registradas")
 
     elif nav == "Control de Combustible":
-        st.subheader("Deteccion de Consumo Inusual")
-
-        st.markdown(
-            "Usa el slider para ajustar el umbral de deteccion. "
-            "El sistema compara el **consumo real** (gal/h) contra el **consumo teorico** de cada maquina."
-        )
-
-        umbral = st.slider(
-            "Multiplicador de tolerancia sobre consumo teorico",
-            min_value=1.0, max_value=2.0, value=1.15, step=0.05,
-            help="1.0 = justo el consumo teorico. 1.15 = 15% sobre el teorico (default). Valores mas bajos detectan mas anomalias."
-        )
-
-        todos_reportes = api_get("/api/v1/reportes/valorizacion")
-
-        if todos_reportes:
+        st.subheader("Alertas de Consumo de Combustible")
+        todos = api_get("/api/v1/reportes/valorizacion")
+        if todos:
             rows = []
-            for r in todos_reportes:
+            for r in todos:
                 gal_cons = max(r["galones_inicial"] - r["galones_final"], 0)
                 horas = r["horas_trabajadas"]
-                tasa_real = gal_cons / max(horas, 0.1)
+                tasa = gal_cons / max(horas, 0.1)
                 ct = r.get("consumo_teorico_gh", 5.0)
-                umbral_gal = horas * ct * umbral
-                alerta_frontend = gal_cons > umbral_gal and horas > 0
-                relacion = gal_cons / max(horas * ct, 0.1)
-
+                esperado = horas * ct * 1.15
+                alerta = gal_cons > esperado and horas > 0
                 rows.append({
                     "Fecha": r["fecha"][:10],
                     "Orden": r["orden"],
@@ -843,87 +828,26 @@ if st.session_state.rol == "ADMINISTRADOR":
                     "Gal.Ini": f"{r['galones_inicial']:.1f}",
                     "Gal.Fin": f"{r['galones_final']:.1f}",
                     "Consumido": f"{gal_cons:.1f} gal",
-                    "Tasa Real": f"{tasa_real:.2f} gal/h",
-                    "C.Teori": f"{ct:.1f} gal/h",
-                    "Relacion": f"{relacion:.2f}x",
-                    "Alerta": "SI" if alerta_frontend else "NO",
+                    "Tasa": f"{tasa:.2f} gal/h",
+                    "Alerta": "SI" if alerta else "NO",
                 })
             df = pd.DataFrame(rows)
 
-            def highlight_alert(row):
+            def highlight(row):
                 if row["Alerta"] == "SI":
-                    return ["background-color: #ff4444; color:white; font-weight:bold"] * len(row)
-                if float(row["Tasa Real"].split()[0]) > 5:
-                    return ["background-color: #fff3cd"] * len(row)
+                    return ["background-color: #ffcccc"] * len(row)
                 return [""] * len(row)
 
-            styled = df.style.apply(highlight_alert, axis=1)
+            styled = df.style.apply(highlight, axis=1)
             st.dataframe(styled, use_container_width=True, hide_index=True)
 
-            alertas_detectadas = sum(1 for r in rows if r["Alerta"] == "SI")
-
-            if alertas_detectadas > 0:
-                st.warning(f"**{alertas_detectadas} alerta(s)** detectada(s) con umbral x{umbral:.2f}")
+            total_alertas = sum(1 for r in rows if r["Alerta"] == "SI")
+            if total_alertas > 0:
+                st.warning(f"Se detectaron {total_alertas} reporte(s) con consumo inusual (alta carga de combustible en pocas horas).")
             else:
-                st.success(f"Ninguna alerta con umbral x{umbral:.2f}. Baja el slider para mas sensibilidad.")
-
-            # Ejemplo en vivo del reporte mas reciente con datos
-            con_datos = [r for r in todos_reportes if r["galones_inicial"] > 0]
-            if con_datos:
-                ultimo = con_datos[0]
-                gc = max(ultimo["galones_inicial"] - ultimo["galones_final"], 0)
-                h = ultimo["horas_trabajadas"]
-                ct = ultimo.get("consumo_teorico_gh", 5.0)
-                tasa = gc / max(h, 0.1)
-                limite = h * ct * umbral
-                with st.expander("Demo en vivo: calculo paso a paso del ultimo reporte con datos"):
-                    st.markdown(
-                        f"""
-| Variable | Valor |
-|---|---|
-| Orden | {ultimo['orden']} |
-| Horas trabajadas | {h:.1f} h |
-| Galones inicial | {ultimo['galones_inicial']:.1f} gal |
-| Galones final | {ultimo['galones_final']:.1f} gal |
-| **Consumo real** | **{gc:.1f} gal** |
-| Tasa real | {tasa:.2f} gal/h |
-| Consumo teorico maquina | {ct:.2f} gal/h |
-| Umbral seleccionado | x{umbral:.2f} |
-| **Limite para alerta** | **{limite:.1f} gal** ({h:.1f}h x {ct:.2f} x {umbral:.2f}) |
-| **Resultado** | {'ALERTA' if gc > limite else 'Normal'} |
-"""
-                    )
-
-            with st.expander("Que significan los valores?"):
-                st.markdown(
-                    """
-- **Tasa Real:** galones consumidos / horas trabajadas
-- **C.Teori:** consumo teorico registrado en la maquina (gal/h)
-- **Relacion:** tasa real / consumo teorico (1.0 = igual, >1.15 = anomalo)
-- **Alerta:** SI cuando consumo real supera `horas x teorico x umbral`
-"""
-                )
+                st.info("No se detectaron anomalias de consumo.")
         else:
             st.info("No hay reportes registrados")
-
-        st.divider()
-
-        st.subheader("Diagnostico: Consumo Teorico por Maquina")
-        maquinas = api_get("/api/v1/maquinaria")
-        if maquinas:
-            for m in maquinas:
-                ct = float(m["consumo_teorico_gh"])
-                col_a, col_b = st.columns([3, 2])
-                with col_a:
-                    st.markdown(f"**{m['nombre_completo']}** ({m['codigo_interno']})")
-                with col_b:
-                    st.markdown(f"Teorico: **{ct:.2f} gal/h**")
-            st.info(
-                "Si el consumo teorico es irreal (>10 gal/h), ajustalo en Supabase "
-                "(tabla `maquinaria`, columna `consumo_teorico_gh`). Una grua tipica gasta ~5 gal/h."
-            )
-        else:
-            st.warning("No hay maquinas registradas")
 
     elif nav == "Mantenimiento Predictivo":
         st.subheader("Estado de Mantenimiento de Flota")

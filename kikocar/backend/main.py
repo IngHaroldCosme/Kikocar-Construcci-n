@@ -322,7 +322,11 @@ async def crear_reporte(data: ReporteCreateRequest):
         raise HTTPException(400, "Las horas trabajadas deben ser mayores a cero")
 
     galones_consumidos = max(data.galones_inicial - data.galones_final, 0)
-    alerta_robo = Decimal(str(galones_consumidos)) > horas_trabajadas * maquina.consumo_teorico_gh * Decimal("1.15")
+
+    ct = float(maquina.consumo_teorico_gh)
+    if ct <= 0 or ct > 15:
+        ct = 5.0
+    alerta_robo = Decimal(str(galones_consumidos)) > horas_trabajadas * Decimal(str(ct)) * Decimal("1.15")
 
     reportes_orden = await reporte_repo.listar_por_orden(orden.id)
     alertas_previas = sum(1 for r in reportes_orden if r.alerta_robo)
