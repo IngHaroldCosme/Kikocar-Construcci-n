@@ -8,6 +8,7 @@ from uuid import UUID
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from fastapi.responses import FileResponse, Response
@@ -25,8 +26,16 @@ from src.infrastructure.adapters.supabase_repository import (
 )
 
 load_dotenv()
-
 app = FastAPI(title="Kikocar Construcción API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ── Repositorios (inyección manual) ──────────────────────────
 maquina_repo = SupabaseMaquinaRepository()

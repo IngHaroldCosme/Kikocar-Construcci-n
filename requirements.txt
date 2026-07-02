@@ -1,0 +1,8 @@
+pydantic
+python-dotenv
+fastapi
+uvicorn[standard]
+supabase
+requests
+pandas
+fpdf2
